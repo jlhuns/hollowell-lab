@@ -53,7 +53,7 @@
   .views { display: flex; gap: 6px; flex-wrap: wrap; }
   .btn { font: 600 .8rem/1 var(--f-body); color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; backdrop-filter: blur(4px); }
   .btn[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
-  .btn.ar { border-color: var(--moon); color: var(--moon); }
+  .btn.look { border-color: var(--moon); color: var(--moon); }
   .hint { transition: opacity .6s; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-family: var(--f-type); font-size: .72rem; letter-spacing: .08em; color: var(--muted); background: color-mix(in srgb, var(--bg) 70%, transparent); padding: 6px 10px; border-radius: 6px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
 
   /* labels in the 3D view */
@@ -122,15 +122,21 @@
   <div id="labels"></div>
   <div class="hint" id="hint">Drag to look around &middot; pinch to zoom &middot; tap a label</div>
   <div class="hud" id="hud">
-    <div class="views">
+    <div class="views" id="orbit-views">
       <button class="btn" data-view="overview">Overview</button>
       <button class="btn" data-view="rail">From the rail</button>
       <button class="btn" data-view="table">His table</button>
       <button class="btn" data-view="desk">Desk &amp; machine</button>
     </div>
+    <div class="views" id="look-views" hidden>
+      <button class="btn" data-station="rail">At the rail</button>
+      <button class="btn" data-station="machine">By the machine</button>
+      <button class="btn" data-station="door">Doorway</button>
+      <button class="btn" data-station="window">By the window</button>
+    </div>
     <div class="views">
       <button class="btn" id="btn-pos" aria-pressed="false" hidden>Positions at the flash</button>
-      <button class="btn ar" id="btn-ar" hidden>Step inside (AR)</button>
+      <button class="btn look" id="btn-look">Look around</button>
     </div>
   </div>
   <div id="evidence" hidden><div class="stack" id="stack"></div></div>
@@ -237,7 +243,8 @@ const spots = {};                    // evidence number -> label object
 const SPOT_OF = { 1: 1, 2: 1, 3: 1, 4: 1, 5: 1, 6: 1, 7: 1, 8: 1, 9: 1 };
 const people = [];
 let sphere, flicker = [];
-const arOnly = [];                   // [object, fromRound, toRound]: shown only in the exported AR files
+const arOnly = [];
+const lookOnly = [];                 // shown only in Look around (the open side and the ceiling)                   // [object, fromRound, toRound]: shown only in the exported AR files
 
 function signTex(text, bg, fg, w = 256, h = 256, font = "bold 150px Georgia") {
   return tex(w, h, (g, W, H) => { g.fillStyle = bg; g.fillRect(0, 0, W, H); g.strokeStyle = fg; g.lineWidth = 10; g.strokeRect(8, 8, W - 16, H - 16);
@@ -298,6 +305,9 @@ function build() {
   brick.wrapS = brick.wrapT = THREE.RepeatWrapping; brick.repeat.set(5, 2);
   const wallM = mat(0xffffff, { map: brick, r: .95 });
   const north = box(W, H, .2, wallM, 0, H / 2, P(0, 30).z - .1);
+  lookOnly.push(box(W, H, .2, wallM, 0, H / 2, P(0, 440).z + .1));
+  const ceil = new THREE.Mesh(new THREE.PlaneGeometry(W, D), mat(0x2a1d15, { r: .95 })); ceil.rotation.x = Math.PI / 2; ceil.position.set(0, H, P(0, 235).z); world.add(ceil); lookOnly.push(ceil);
+  lookOnly.forEach(o => o.visible = false);
   const w1 = P(20, 30), dz1 = (335 - 30) * S; box(.2, H, dz1, wallM, w1.x - .1, H / 2, w1.z + dz1 / 2);
   const dz2 = (440 - 385) * S; box(.2, H, dz2, wallM, w1.x - .1, H / 2, P(0, 385).z + dz2 / 2);
   box(.2, H - 2.4, (385 - 335) * S, wallM, w1.x - .1, 2.4 + (H - 2.4) / 2, P(0, 360).z);           // over the door
@@ -482,7 +492,8 @@ function start() {
   controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true; controls.dampingFactor = .08; controls.maxPolarAngle = 1.45; controls.minDistance = 2; controls.maxDistance = 30;
   controls.addEventListener("start", () => { tween = null; $("#hint").style.opacity = 0; });
-  const size = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h); labelRenderer.setSize(w, h); camera.aspect = w / h; camera.fov = w < h ? 62 : 48; camera.updateProjectionMatrix(); };
+  const size = () => { const w = host.clientWidth, h = host.clientHeight; if (!w || !h) return; renderer.setSize(w, h); labelRenderer.setSize(w, h); camera.aspect = w / h; camera.fov = look ? 72 : w < h ? 62 : 48; camera.updateProjectionMatrix(); };
+  resizeView = size;
   new ResizeObserver(size).observe(host); size();
   { const [p0, t0] = viewOf("overview"); camera.position.copy(p0); controls.target.copy(t0); }
   applyRound();
@@ -491,20 +502,74 @@ function start() {
     const t = clock.getElapsedTime();
     if (!reduce) flicker.forEach((L, i) => L.intensity = 16 + Math.sin(t * 7 + i * 2) * .8 + Math.sin(t * 13.3 + i) * .5);
     if (tween) { camera.position.lerp(tween.p, .08); controls.target.lerp(tween.t, .08); if (camera.position.distanceTo(tween.p) < .02) tween = null; }
-    controls.update(); document.body.classList.toggle("far", camera.position.distanceTo(controls.target) > 9); renderer.render(scene, camera); labelRenderer.render(scene, camera);
+    if (look) { lookUpdate(); document.body.classList.remove("far"); }
+    else { controls.update(); document.body.classList.toggle("far", camera.position.distanceTo(controls.target) > 9); }
+    renderer.render(scene, camera); labelRenderer.render(scene, camera);
   });
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => goView(b.dataset.view));
-  setupAR();
+  setupLook();
   setTimeout(() => { $("#hint").style.opacity = 0; }, 6000);
 }
 
-// iPhone AR Quick Look: opens the pre-built file for the current round. Only when the page is opened directly.
-function setupAR() {
-  const a = document.createElement("a");
-  const ios = a.relList && a.relList.supports && a.relList.supports("ar");
-  if (!ios || window.self !== window.top) return;
-  $("#btn-ar").hidden = false;
-  $("#btn-ar").onclick = () => { a.rel = "ar"; a.href = `ar/round-${round}.usdz#allowsContentScaling=0`; a.innerHTML = '<img alt="">'; document.body.appendChild(a); a.click(); };
+// ---------- Look around: stand inside the lab; the phone's motion turns your view ----------
+// [stand x, stand y, look toward x, look toward y] in sketch units
+const STATIONS = { rail: [330, 362, 330, 150], machine: [300, 90, 380, 230], door: [52, 360, 330, 220], window: [616, 236, 330, 200] };
+const EYE = 1.6, UP = new THREE.Vector3(0, 1, 0), ZEE = new THREE.Vector3(0, 0, 1);
+const Q1 = new THREE.Quaternion(-Math.sqrt(.5), 0, 0, Math.sqrt(.5)), qTmp = new THREE.Quaternion(), qDev = new THREE.Quaternion(), qYaw = new THREE.Quaternion();
+const eDev = new THREE.Euler(), eMan = new THREE.Euler();
+let look = false, gyro = false, dev = null, yawOffset = 0, needAlign = false, yaw = 0, pitch = 0, wantYaw = 0, resizeView = () => {}, hintTimer;
+
+addEventListener("deviceorientation", e => { if (e.alpha !== null) dev = { a: e.alpha, b: e.beta, g: e.gamma }; });
+function deviceQuat(o) {
+  const orient = THREE.MathUtils.degToRad((screen.orientation && screen.orientation.angle) || window.orientation || 0);
+  eDev.set(THREE.MathUtils.degToRad(o.b), THREE.MathUtils.degToRad(o.a), -THREE.MathUtils.degToRad(o.g), "YXZ");
+  return qDev.setFromEuler(eDev).multiply(Q1).multiply(qTmp.setFromAxisAngle(ZEE, -orient));
+}
+const yawOf = q => { const f = new THREE.Vector3(0, 0, -1).applyQuaternion(q); return Math.atan2(-f.x, -f.z); };
+function setHint(text) { const h = $("#hint"); h.textContent = text; h.style.opacity = 1; clearTimeout(hintTimer); hintTimer = setTimeout(() => h.style.opacity = 0, 5000); }
+
+function goStation(name) {
+  const [x, y, tx, ty] = STATIONS[name];
+  camera.position.copy(P(x, y, EYE));
+  const d = P(tx, ty, EYE).sub(camera.position);
+  wantYaw = Math.atan2(-d.x, -d.z); yaw = wantYaw; pitch = -.12; needAlign = true;
+  document.querySelectorAll("[data-station]").forEach(b => b.setAttribute("aria-pressed", b.dataset.station === name));
+}
+function lookUpdate() {
+  if (gyro && dev) {
+    const q = deviceQuat(dev);
+    if (needAlign) { yawOffset = wantYaw - yawOf(q); needAlign = false; }
+    camera.quaternion.copy(qYaw.setFromAxisAngle(UP, yawOffset)).multiply(q);
+  } else camera.quaternion.setFromEuler(eMan.set(pitch, yaw, 0, "YXZ"));
+}
+async function enterLook() {
+  if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
+    try { gyro = (await DeviceOrientationEvent.requestPermission()) === "granted"; } catch { gyro = false; }
+  } else gyro = matchMedia("(pointer: coarse)").matches;
+  look = true; tween = null; controls.enabled = false;
+  lookOnly.forEach(o => o.visible = true);
+  $("#orbit-views").hidden = true; $("#look-views").hidden = false; $("#btn-look").textContent = "Back to the model";
+  resizeView(); goStation("rail");
+  setHint(gyro ? "Move your phone to look around \u00B7 tap a label" : "Drag to look around \u00B7 tap a label");
+  setTimeout(() => { if (look && gyro && !dev) setHint("Drag to look around \u00B7 tap a label"); }, 1500);
+}
+function exitLook() {
+  look = false; controls.enabled = true;
+  lookOnly.forEach(o => o.visible = false);
+  $("#orbit-views").hidden = false; $("#look-views").hidden = true; $("#btn-look").textContent = "Look around";
+  resizeView(); const [p0, t0] = viewOf("overview"); camera.position.copy(p0); controls.target.copy(t0);
+}
+function setupLook() {
+  $("#btn-look").onclick = () => look ? exitLook() : enterLook();
+  document.querySelectorAll("[data-station]").forEach(b => b.onclick = () => goStation(b.dataset.station));
+  const el = renderer.domElement; let drag = null;
+  el.addEventListener("pointerdown", e => { if (!look) return; drag = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointermove", e => {
+    if (!look || !drag) return;
+    const dx = (e.clientX - drag.x) * .005, dy = (e.clientY - drag.y) * .005; drag = { x: e.clientX, y: e.clientY };
+    if (gyro && dev) yawOffset += dx; else { yaw += dx; pitch = Math.max(-1.3, Math.min(1.3, pitch + dy)); }
+  });
+  el.addEventListener("pointerup", () => drag = null); el.addEventListener("pointercancel", () => drag = null);
 }
 
 // Builds the AR file for a round (used once, offline, to make ar/round-N.usdz)
