@@ -54,6 +54,14 @@
   .btn { font: 600 .8rem/1 var(--f-body); color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; backdrop-filter: blur(4px); }
   .btn[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
   .btn.look { border-color: var(--moon); color: var(--moon); }
+  .height { position: absolute; right: 0; bottom: calc(100% + 12px); display: grid; justify-items: center; gap: 6px; }
+  .height[hidden] { display: none; }
+  .height .btn { width: 44px; height: 44px; padding: 0; font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .height span, .stick span { font: 700 .62rem/1 var(--f-type); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); }
+  .stick { position: absolute; left: 0; bottom: calc(100% + 12px); width: 112px; height: 112px; border-radius: 50%; border: 1px solid var(--line); background: color-mix(in srgb, var(--panel) 55%, transparent); backdrop-filter: blur(4px); touch-action: none; user-select: none; -webkit-user-select: none; display: grid; place-items: center; }
+  .stick[hidden] { display: none; }
+  .stick span { position: absolute; bottom: -16px; }
+  .knob { width: 48px; height: 48px; border-radius: 50%; background: var(--panel); border: 1px solid var(--brass); box-shadow: 0 2px 10px rgba(0,0,0,.5); pointer-events: none; }
   .hint { transition: opacity .6s; position: absolute; top: 10px; left: 50%; transform: translateX(-50%); font-family: var(--f-type); font-size: .72rem; letter-spacing: .08em; color: var(--muted); background: color-mix(in srgb, var(--bg) 70%, transparent); padding: 6px 10px; border-radius: 6px; pointer-events: none; white-space: nowrap; max-width: calc(100% - 32px); overflow: hidden; text-overflow: ellipsis; }
 
   /* labels in the 3D view */
@@ -137,6 +145,12 @@
     <div class="views">
       <button class="btn" id="btn-pos" aria-pressed="false" hidden>Positions at the flash</button>
       <button class="btn look" id="btn-look">Look around</button>
+    </div>
+    <div class="stick" id="stick" hidden aria-label="Walk: drag the knob"><div class="knob" id="knob"></div><span>Walk</span></div>
+    <div class="height" id="height" hidden>
+      <button class="btn" data-climb="1" aria-label="Raise your view">&#9650;</button>
+      <span>Height</span>
+      <button class="btn" data-climb="-1" aria-label="Lower your view">&#9660;</button>
     </div>
   </div>
   <div id="evidence" hidden><div class="stack" id="stack"></div></div>
@@ -518,6 +532,14 @@ const EYE = 1.6, UP = new THREE.Vector3(0, 1, 0), ZEE = new THREE.Vector3(0, 0, 
 const Q1 = new THREE.Quaternion(-Math.sqrt(.5), 0, 0, Math.sqrt(.5)), qTmp = new THREE.Quaternion(), qDev = new THREE.Quaternion(), qYaw = new THREE.Quaternion();
 const eDev = new THREE.Euler(), eMan = new THREE.Euler();
 let look = false, gyro = false, dev = null, yawOffset = 0, needAlign = false, yaw = 0, pitch = 0, wantYaw = 0, resizeView = () => {}, hintTimer;
+let eye = EYE, climb = 0;                // eye height in metres; climb is +1/-1 while a height button is held
+const setEye = h => { eye = Math.max(.3, Math.min(3.2, h)); };
+// walking: the thumbstick (or WASD / arrow keys) moves you, kept inside the walls
+const walk = { x: 0, y: 0 }, keys = new Set();
+const BOUNDS = [P(20, 0).x + .25, P(660, 0).x - .25, P(0, 30).z + .25, P(0, 440).z - .25];
+let lastT = 0;
+const key = (...k) => k.some(n => keys.has(n)) ? 1 : 0;
+const capture = (el, e) => { try { el.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ } };
 
 addEventListener("deviceorientation", e => { if (e.alpha !== null) dev = { a: e.alpha, b: e.beta, g: e.gamma }; });
 function deviceQuat(o) {
@@ -532,15 +554,27 @@ function goStation(name) {
   const [x, y, tx, ty] = STATIONS[name];
   camera.position.copy(P(x, y, EYE));
   const d = P(tx, ty, EYE).sub(camera.position);
-  wantYaw = Math.atan2(-d.x, -d.z); yaw = wantYaw; pitch = -.12; needAlign = true;
+  wantYaw = Math.atan2(-d.x, -d.z); yaw = wantYaw; pitch = -.12; needAlign = true; eye = EYE;
   document.querySelectorAll("[data-station]").forEach(b => b.setAttribute("aria-pressed", b.dataset.station === name));
 }
 function lookUpdate() {
+  const now = performance.now(), dt = Math.min(.05, (now - lastT) / 1000); lastT = now;
   if (gyro && dev) {
     const q = deviceQuat(dev);
     if (needAlign) { yawOffset = wantYaw - yawOf(q); needAlign = false; }
     camera.quaternion.copy(qYaw.setFromAxisAngle(UP, yawOffset)).multiply(q);
   } else camera.quaternion.setFromEuler(eMan.set(pitch, yaw, 0, "YXZ"));
+  // walk toward wherever you are facing (level with the floor)
+  const mx = Math.max(-1, Math.min(1, walk.x + key("d", "arrowright") - key("a", "arrowleft")));
+  const my = Math.max(-1, Math.min(1, walk.y + key("w", "arrowup") - key("s", "arrowdown")));
+  if (mx || my) {
+    const a = yawOf(camera.quaternion), step = 1.5 * dt, p = camera.position;
+    p.x = Math.max(BOUNDS[0], Math.min(BOUNDS[1], p.x + (-Math.sin(a) * my + Math.cos(a) * mx) * step));
+    p.z = Math.max(BOUNDS[2], Math.min(BOUNDS[3], p.z + (-Math.cos(a) * my - Math.sin(a) * mx) * step));
+    document.querySelectorAll("[data-station]").forEach(b => b.setAttribute("aria-pressed", false));
+  }
+  if (climb) setEye(eye + climb * 1.2 * dt);
+  camera.position.y = eye;
 }
 async function enterLook() {
   if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
@@ -548,28 +582,48 @@ async function enterLook() {
   } else gyro = matchMedia("(pointer: coarse)").matches;
   look = true; tween = null; controls.enabled = false;
   lookOnly.forEach(o => o.visible = true);
-  $("#orbit-views").hidden = true; $("#look-views").hidden = false; $("#btn-look").textContent = "Back to the model";
-  resizeView(); goStation("rail");
-  setHint(gyro ? "Move your phone to look around \u00B7 tap a label" : "Drag to look around \u00B7 tap a label");
-  setTimeout(() => { if (look && gyro && !dev) setHint("Drag to look around \u00B7 tap a label"); }, 1500);
+  $("#orbit-views").hidden = true; $("#look-views").hidden = false; $("#height").hidden = false; $("#stick").hidden = false; $("#btn-look").textContent = "Back to the model";
+  resizeView(); goStation("rail"); lastT = performance.now();
+  setHint(gyro ? "Thumbstick to walk \u00B7 move your phone to look" : "Thumbstick or WASD to walk \u00B7 drag to look");
+  setTimeout(() => { if (look && gyro && !dev) { gyro = false; setHint("Thumbstick to walk \u00B7 drag to look"); } }, 1500);
 }
 function exitLook() {
-  look = false; controls.enabled = true;
+  look = false; climb = 0; walk.x = walk.y = 0; keys.clear(); controls.enabled = true;
   lookOnly.forEach(o => o.visible = false);
-  $("#orbit-views").hidden = false; $("#look-views").hidden = true; $("#btn-look").textContent = "Look around";
+  $("#orbit-views").hidden = false; $("#look-views").hidden = true; $("#height").hidden = true; $("#stick").hidden = true; $("#btn-look").textContent = "Look around";
   resizeView(); const [p0, t0] = viewOf("overview"); camera.position.copy(p0); controls.target.copy(t0);
 }
 function setupLook() {
   $("#btn-look").onclick = () => look ? exitLook() : enterLook();
   document.querySelectorAll("[data-station]").forEach(b => b.onclick = () => goStation(b.dataset.station));
   const el = renderer.domElement; let drag = null;
-  el.addEventListener("pointerdown", e => { if (!look) return; drag = { x: e.clientX, y: e.clientY }; el.setPointerCapture(e.pointerId); });
+  el.addEventListener("pointerdown", e => { if (!look) return; drag = { x: e.clientX, y: e.clientY }; capture(el, e); });
   el.addEventListener("pointermove", e => {
     if (!look || !drag) return;
     const dx = (e.clientX - drag.x) * .005, dy = (e.clientY - drag.y) * .005; drag = { x: e.clientX, y: e.clientY };
-    if (gyro && dev) yawOffset += dx; else { yaw += dx; pitch = Math.max(-1.3, Math.min(1.3, pitch + dy)); }
+    // with phone motion the tilt already looks up and down, so a vertical drag raises or lowers you instead
+    if (gyro && dev) { yawOffset += dx; setEye(eye + dy * 1.2); } else { yaw += dx; pitch = Math.max(-1.3, Math.min(1.3, pitch + dy)); }
   });
   el.addEventListener("pointerup", () => drag = null); el.addEventListener("pointercancel", () => drag = null);
+  document.querySelectorAll("[data-climb]").forEach(b => {
+    b.addEventListener("pointerdown", e => { e.preventDefault(); climb = +b.dataset.climb; capture(b, e); });
+    for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) b.addEventListener(ev, () => climb = 0);
+    b.addEventListener("contextmenu", e => e.preventDefault());
+  });
+  const stick = $("#stick"), knob = $("#knob"), R = 40;
+  const moveStick = e => {
+    const r = stick.getBoundingClientRect(); let dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const len = Math.hypot(dx, dy); if (len > R) { dx *= R / len; dy *= R / len; }
+    knob.style.transform = `translate(${dx}px, ${dy}px)`; walk.x = dx / R; walk.y = -dy / R;
+  };
+  let stickId = null;
+  const stopStick = e => { if (e.pointerId !== stickId) return; stickId = null; walk.x = walk.y = 0; knob.style.transform = ""; };
+  stick.addEventListener("pointerdown", e => { e.preventDefault(); stickId = e.pointerId; capture(stick, e); moveStick(e); });
+  stick.addEventListener("pointermove", e => { if (e.pointerId === stickId) moveStick(e); });
+  for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) stick.addEventListener(ev, stopStick);
+  addEventListener("keydown", e => { if (look && /^(w|a|s|d|arrow(up|down|left|right))$/.test(e.key.toLowerCase())) { keys.add(e.key.toLowerCase()); e.preventDefault(); } });
+  addEventListener("keyup", e => keys.delete(e.key.toLowerCase()));
+  addEventListener("blur", () => keys.clear());
 }
 
 // Builds the AR file for a round (used once, offline, to make ar/round-N.usdz)
