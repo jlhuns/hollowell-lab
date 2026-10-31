@@ -653,6 +653,7 @@ function setupAR() {
     $("#gate").innerHTML = `<div class="card ar-card"><div class="tag">Round ${round} &middot; Step inside</div><h3>Walk into the laboratory</h3>
       <label class="ar-size"><span>Size</span><input type="range" id="ar-size" min="0" max="${SIZES.length - 1}" step="1"><output id="ar-size-out"></output></label>
       <ol><li id="ar-floor"></li><li>Stand one step out from a wall, facing into the room.</li><li>Tap below, then point your phone at your feet until the lab appears around you.</li><li>Walk, crouch and lean in. Keep your fingers off the screen.</li></ol>
+      <p class="note"><b>Move slowly:</b> the lab covers your real room, so you won't see the furniture in it.</p>
       <p class="note">Yellow numbers mark the evidence. Read the cards on the Evidence tab.</p>
       <div class="row"><a rel="ar" id="ar-link"><img src="${arButtonImage()}" width="208" height="45" alt="Open the lab"></a><button id="ar-no">Not now</button></div></div>`;
     const slider = $("#ar-size");
@@ -660,7 +661,9 @@ function setupAR() {
       const pct = SIZES[i], s = pct / 100;
       store.set("hollowell-ar-size", pct);
       $("#ar-size-out").textContent = pct + "%";
-      $("#ar-floor").textContent = `Find open floor about ${(4 * s).toFixed(1)} × ${(4.6 * s).toFixed(1)} m.` + (pct < 65 ? " At this size the room has no ceiling: you look down into it." : "");
+      $("#ar-floor").textContent = pct < 65
+        ? `Clear about ${(4 * s + 1.4).toFixed(1)} × ${(4.6 * s + 1.4).toFixed(1)} m of floor. The lab has no ceiling at this size, so you look down into it from a dark hall around it.`
+        : `Clear about ${(4 * s).toFixed(1)} × ${(4.6 * s).toFixed(1)} m of floor.`;
       $("#ar-link").href = `ar/round-${round}-${pct}.usdz#allowsContentScaling=0`;
     };
     slider.value = Math.max(0, SIZES.indexOf(store.get("hollowell-ar-size", 50)));
