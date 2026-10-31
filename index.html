@@ -149,6 +149,7 @@
       <button class="btn" data-station="machine">By the machine</button>
       <button class="btn" data-station="door">Doorway</button>
       <button class="btn" data-station="window">By the window</button>
+      <button class="btn" id="btn-steps" aria-pressed="true" hidden>Walk with steps: on</button>
     </div>
     <div class="views">
       <button class="btn" id="btn-pos" aria-pressed="false" hidden>Positions at the flash</button>
@@ -169,7 +170,7 @@
     <div class="card">
       <div class="tag">Hollowell Manor &middot; 31 October 1888</div>
       <h3>Enter the laboratory</h3>
-      <p>You'll be standing inside the lab. Move your phone to look around, drag the <b>Walk</b> stick to move, and use <b>&#9650; &#9660;</b> to stand tall or crouch.</p>
+      <p>You'll be standing inside the lab. Move your phone to look around, and <b>take steps</b> (or step on the spot) to walk forward the way you're facing. The <b>Walk</b> stick works too, and <b>&#9650; &#9660;</b> let you stand tall or crouch.</p>
       <p class="note">Tap a numbered label to read that piece of evidence.</p>
       <div class="row"><button class="go" id="enter-go">Enter the laboratory</button><button id="enter-model">See the model instead</button></div>
     </div>
@@ -586,25 +587,45 @@ function lookUpdate() {
   // walk toward wherever you are facing (level with the floor)
   const mx = Math.max(-1, Math.min(1, walk.x + key("d", "arrowright") - key("a", "arrowleft")));
   const my = Math.max(-1, Math.min(1, walk.y + key("w", "arrowup") - key("s", "arrowdown")));
-  if (mx || my) {
-    const a = yawOf(camera.quaternion), step = 1.5 * dt, p = camera.position;
-    p.x = Math.max(BOUNDS[0], Math.min(BOUNDS[1], p.x + (-Math.sin(a) * my + Math.cos(a) * mx) * step));
-    p.z = Math.max(BOUNDS[2], Math.min(BOUNDS[3], p.z + (-Math.cos(a) * my - Math.sin(a) * mx) * step));
+  // a detected footstep adds a stride to stepLeft, walked off smoothly in the direction you face
+  const stride = Math.min(stepLeft, 1.8 * dt); stepLeft -= stride;
+  if (mx || my || stride) {
+    const a = yawOf(camera.quaternion), step = 1.5 * dt, p = camera.position, fwd = my * step + stride;
+    p.x = Math.max(BOUNDS[0], Math.min(BOUNDS[1], p.x - Math.sin(a) * fwd + Math.cos(a) * mx * step));
+    p.z = Math.max(BOUNDS[2], Math.min(BOUNDS[3], p.z - Math.cos(a) * fwd - Math.sin(a) * mx * step));
     document.querySelectorAll("[data-station]").forEach(b => b.setAttribute("aria-pressed", false));
   }
   if (climb) setEye(eye + climb * 1.2 * dt);
   camera.position.y = eye;
 }
+// Real steps: like a pedometer, each footfall shows as a bounce in the phone's acceleration,
+// and every bounce walks you about one stride forward. Walking on the spot works too.
+const STRIDE = .55;
+let steps = true, stepLeft = 0, bounce = 0, armed = true, lastStep = 0;
+addEventListener("devicemotion", e => {
+  const a = e.acceleration;
+  if (!look || !steps || !a || a.x === null) return;
+  bounce += (Math.hypot(a.x, a.y, a.z) - bounce) * .3;                // smoothed shake, gravity already removed
+  const now = performance.now();
+  if (armed && bounce > 1.3 && now - lastStep > 280) { armed = false; lastStep = now; stepLeft = Math.min(1.2, stepLeft + STRIDE); }
+  else if (!armed && bounce < .6) armed = true;
+});
+function setSteps(on) { steps = on; stepLeft = 0; $("#btn-steps").setAttribute("aria-pressed", on); $("#btn-steps").textContent = on ? "Walk with steps: on" : "Walk with steps: off"; }
+
 async function enterLook() {
   if (typeof DeviceOrientationEvent !== "undefined" && typeof DeviceOrientationEvent.requestPermission === "function") {
-    try { gyro = (await DeviceOrientationEvent.requestPermission()) === "granted"; } catch { gyro = false; }
+    // ask for orientation and motion together, while the tap still counts
+    const asks = [DeviceOrientationEvent.requestPermission()];
+    if (typeof DeviceMotionEvent !== "undefined" && typeof DeviceMotionEvent.requestPermission === "function") asks.push(DeviceMotionEvent.requestPermission());
+    try { gyro = (await Promise.all(asks))[0] === "granted"; } catch { gyro = false; }
   } else gyro = matchMedia("(pointer: coarse)").matches;
   look = true; tween = null; controls.enabled = false;
   lookOnly.forEach(o => o.visible = true);
   $("#orbit-views").hidden = true; $("#look-views").hidden = false; $("#height").hidden = false; $("#stick").hidden = false; $("#btn-look").textContent = "Back to the model";
+  $("#btn-steps").hidden = !gyro; setSteps(gyro);
   resizeView(); goStation("rail"); lastT = performance.now();
-  setHint(gyro ? "Thumbstick to walk \u00B7 move your phone to look" : "Thumbstick or WASD to walk \u00B7 drag to look");
-  setTimeout(() => { if (look && gyro && !dev) { gyro = false; setHint("Thumbstick to walk \u00B7 drag to look"); } }, 1500);
+  setHint(gyro ? "Take steps to walk \u00B7 move your phone to look" : "Thumbstick or WASD to walk \u00B7 drag to look");
+  setTimeout(() => { if (look && gyro && !dev) { gyro = false; $("#btn-steps").hidden = true; setSteps(false); setHint("Thumbstick to walk \u00B7 drag to look"); } }, 1500);
 }
 function exitLook() {
   look = false; climb = 0; walk.x = walk.y = 0; keys.clear(); controls.enabled = true;
@@ -614,6 +635,7 @@ function exitLook() {
 }
 function setupLook() {
   $("#btn-look").onclick = () => look ? exitLook() : enterLook();
+  $("#btn-steps").onclick = () => setSteps(!steps);
   document.querySelectorAll("[data-station]").forEach(b => b.onclick = () => goStation(b.dataset.station));
   const el = renderer.domElement; let drag = null;
   el.addEventListener("pointerdown", e => { if (!look) return; drag = { x: e.clientX, y: e.clientY }; capture(el, e); });
