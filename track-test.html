@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Hollowell tracking test</title>
+<style>
+  :root { --bg: #0d0a08; --panel: #1c1611; --fg: #ece3cf; --muted: #a8977c; --brass: #d4af37; --ok: #7fbf6a; --warn: #e0a040; --bad: #d05a4a; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.4 Georgia, serif; overflow: hidden; touch-action: none; }
+  #view { position: fixed; inset: 0; }
+  #view canvas { display: block; }
+  .bar { position: fixed; left: 0; right: 0; top: 0; padding: calc(8px + env(safe-area-inset-top, 0px)) 12px 8px; background: rgba(13,10,8,.82); display: grid; gap: 4px; z-index: 2; font-family: "Courier New", monospace; font-size: 13px; }
+  #state { font-weight: 700; }
+  #state.ok { color: var(--ok); } #state.warn { color: var(--warn); } #state.bad { color: var(--bad); }
+  #hint { color: var(--muted); font-family: Georgia, serif; font-size: 14px; }
+  .bottom { position: fixed; left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom, 0px)); display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; z-index: 2; }
+  #map { width: 150px; height: 150px; border: 1px solid #4a3c2c; border-radius: 8px; background: rgba(13,10,8,.85); }
+  .btns { display: grid; gap: 8px; }
+  button { font: 600 15px Georgia, serif; color: var(--fg); background: var(--panel); border: 1px solid var(--brass); border-radius: 8px; padding: 11px 14px; }
+  button.go { background: var(--brass); color: var(--bg); }
+  #start { position: fixed; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; background: var(--bg); }
+  #start .card { max-width: 380px; background: #e6dcc3; color: #2b2119; border-radius: 4px; padding: 20px; }
+  #start h1 { font-weight: 400; font-size: 1.5rem; margin: 0 0 8px; }
+  #start ol { padding-left: 20px; margin: 0 0 14px; }
+  #start li { margin-bottom: 6px; }
+  #start .go { width: 100%; background: #2b2119; color: #ebe1c9; border-color: #2b2119; }
+  #start .small { font-size: 13px; color: #6b5a45; margin: 10px 0 0; }
+  #err { color: var(--bad); }
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div class="bar">
+  <div><span id="state">Not started</span> &middot; <span id="fps">0</span> fps &middot; <span id="pts">0</span> points</div>
+  <div id="read">&nbsp;</div>
+  <div id="hint">&nbsp;</div>
+</div>
+<div class="bottom">
+  <canvas id="map" width="300" height="300" aria-label="Top-down map of your path"></canvas>
+  <div class="btns">
+    <button class="go" id="floor">Set floor</button>
+    <button id="reset">Reset</button>
+  </div>
+</div>
+<div id="start">
+  <div class="card">
+    <h1>Tracking test</h1>
+    <ol>
+      <li>Use the room and lighting you'll play in.</li>
+      <li>Tap Start, allow motion and camera. The camera is used for tracking only and is never shown.</li>
+      <li>Move the phone slowly left and right until it says <b>Tracking</b>.</li>
+      <li>Point at the floor a step ahead and tap <b>Set floor</b>.</li>
+      <li>Walk 3&ndash;5 m, turn round and walk back to where you started. Watch the map: a good result ends near the start dot.</li>
+    </ol>
+    <button class="go" id="go">Start</button>
+    <p class="small">Uses AlvaAR (open source, GPL-3.0) for camera tracking.</p>
+    <p class="small" id="err"></p>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+import * as THREE from "three";
+const ALVA = "https://cdn.jsdelivr.net/gh/alanross/AlvaAR@7796af500ee92001ac2a9888363ff64d7a3bee75/examples/public/assets/";
+const PHONE_HEIGHT = 1.35;            // assumed height of the phone above the floor when "Set floor" is tapped
+const $ = s => document.querySelector(s);
+const setState = (text, cls) => { $("#state").textContent = text; $("#state").className = cls || ""; };
+const hint = t => { $("#hint").textContent = t; };
+
+// ---------- the virtual test room (opaque; the camera picture is never drawn) ----------
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2)); renderer.outputColorSpace = THREE.SRGBColorSpace;
+$("#view").appendChild(renderer.domElement);
+const scene = new THREE.Scene(); scene.background = new THREE.Color(0x0d0a08);
+scene.add(new THREE.HemisphereLight(0xfff0dd, 0x302418, 2.2));
+const camera = new THREE.PerspectiveCamera(65, 1, .02, 60); camera.position.set(0, PHONE_HEIGHT, 0);
+const size = () => { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.render(scene, camera); };
+addEventListener("resize", size); size();
+{
+  const R = 6;                                                    // room half-size in metres
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(2 * R, 2 * R), new THREE.MeshStandardMaterial({ color: 0x3a2c20, roughness: 1 }));
+  floor.rotation.x = -Math.PI / 2; scene.add(floor);
+  const grid = new THREE.GridHelper(2 * R, 2 * R, 0xd4af37, 0x7a6448); grid.position.y = .002; scene.add(grid);
+  const wallM = new THREE.MeshStandardMaterial({ color: 0x5a4030, roughness: 1 });
+  for (const [x, z, ry] of [[0, -R, 0], [0, R, Math.PI], [-R, 0, Math.PI / 2], [R, 0, -Math.PI / 2]]) { const w = new THREE.Mesh(new THREE.PlaneGeometry(2 * R, 3), wallM); w.position.set(x, 1.5, z); w.rotation.y = ry; scene.add(w); }
+  const label = (text, color) => { const c = document.createElement("canvas"); c.width = 128; c.height = 128; const g = c.getContext("2d"); g.fillStyle = color; g.fillRect(0, 0, 128, 128); g.fillStyle = "#141414"; g.font = "bold 64px Georgia"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(text, 64, 68); const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return new THREE.MeshBasicMaterial({ map: t }); };
+  // numbered posts every 2 m, so distance walked can be judged by eye
+  let n = 1;
+  for (let x = -4; x <= 4; x += 2) for (let z = -4; z <= 4; z += 2) {
+    if (!x && !z) continue;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(.06, .06, 1.2, 12), new THREE.MeshStandardMaterial({ color: 0xb8913c, metalness: .6, roughness: .4 })); post.position.set(x, .6, z); scene.add(post);
+    const tag = new THREE.Mesh(new THREE.BoxGeometry(.3, .3, .3), label(String(n++), "#f2c230")); tag.position.set(x, 1.35, z); scene.add(tag);
+  }
+  const start = new THREE.Mesh(new THREE.RingGeometry(.25, .32, 32), new THREE.MeshBasicMaterial({ color: 0x7fbf6a })); start.rotation.x = -Math.PI / 2; start.position.y = .004; scene.add(start);
+}
+
+// ---------- pose handling ----------
+// AlvaAR's own conversion from its pose matrix to a three.js camera
+const rawQ = new THREE.Quaternion(), rawP = new THREE.Vector3(), m4 = new THREE.Matrix4();
+function poseToThree(pose, q, p) { m4.fromArray(pose); const r = new THREE.Quaternion().setFromRotationMatrix(m4); q.set(-r.x, r.y, r.z, r.w); p.set(pose[12], -pose[13], -pose[14]); }
+
+let cal = null;                       // { origin, planeP, right, up, back, qInv, scale }
+const path = [];
+let lastWorld = null, tracking = false, frames = 0, fpsT = performance.now();
+
+function setFloor(alva) {
+  if (!tracking) { hint("Wait for Tracking first: move the phone slowly side to side."); return; }
+  const plane = alva.findPlane();
+  if (!plane) { hint("No floor found. Point at a patterned part of the floor a step ahead and try again."); return; }
+  const pq = new THREE.Quaternion(), pp = new THREE.Vector3(); poseToThree(plane, pq, pp);
+  const up = new THREE.Vector3(0, 0, 1).applyQuaternion(pq);
+  let h = rawP.clone().sub(pp).dot(up); if (h < 0) { up.negate(); h = -h; }
+  if (h < 1e-4) { hint("That plane is too close. Step back and try again."); return; }
+  const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(rawQ); fwd.sub(up.clone().multiplyScalar(fwd.dot(up))).normalize();
+  const back = fwd.clone().negate(), right = new THREE.Vector3().crossVectors(up, back).normalize();
+  const basis = new THREE.Matrix4().makeBasis(right, up, back);               // columns: lab x, y, z in tracking space
+  cal = { origin: rawP.clone(), planeP: pp, up, right, back, qInv: new THREE.Quaternion().setFromRotationMatrix(basis).invert(), scale: PHONE_HEIGHT / h };
+  path.length = 0; lastWorld = null;
+  hint(`Floor set (horizontal: ${Math.abs(up.y) > .8 ? "yes" : "unsure"}). Now walk 3–5 m, turn round and come back.`);
+}
+
+function toWorld() {
+  const d = rawP.clone().sub(cal.origin);
+  return new THREE.Vector3(d.dot(cal.right) * cal.scale, rawP.clone().sub(cal.planeP).dot(cal.up) * cal.scale, d.dot(cal.back) * cal.scale);
+}
+
+function drawMap() {
+  const c = $("#map"), g = c.getContext("2d"), W = c.width, px = W / 8;      // 8 m across
+  g.clearRect(0, 0, W, W); g.strokeStyle = "#3a2e22"; g.lineWidth = 1;
+  for (let i = 0; i <= 8; i++) { g.beginPath(); g.moveTo(i * px, 0); g.lineTo(i * px, W); g.moveTo(0, i * px); g.lineTo(W, i * px); g.stroke(); }
+  const P = (x, z) => [W / 2 + x * px, W / 2 + z * px];
+  g.fillStyle = "#7fbf6a"; g.beginPath(); g.arc(...P(0, 0), 7, 0, 7); g.fill();
+  if (path.length > 1) { g.strokeStyle = "#d4af37"; g.lineWidth = 3; g.beginPath(); g.moveTo(...P(path[0].x, path[0].z)); for (const p of path) g.lineTo(...P(p.x, p.z)); g.stroke(); }
+  if (lastWorld) { g.fillStyle = tracking ? "#ece3cf" : "#d05a4a"; g.beginPath(); g.arc(...P(lastWorld.x, lastWorld.z), 8, 0, 7); g.fill(); }
+}
+
+// ---------- start: permissions, camera, tracking loop ----------
+$("#go").onclick = async () => {
+  try {
+    const asks = [];
+    if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission === "function") asks.push(DeviceOrientationEvent.requestPermission());
+    if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === "function") asks.push(DeviceMotionEvent.requestPermission());
+    const answers = await Promise.all(asks);
+    if (answers.some(a => a !== "granted")) throw new Error("Motion access was not allowed. Reload and tap Allow.");
+    $("#go").textContent = "Loading tracking (4 MB)…"; $("#go").disabled = true;
+    const [{ AlvaAR }, { IMU }, { Camera }] = await Promise.all([import(ALVA + "alva_ar.js"), import(ALVA + "imu.js"), import(ALVA + "utils.js")]);
+    const imu = await IMU.Initialize();
+    const cam = await Camera.Initialize({ video: { facingMode: "environment", aspectRatio: 16 / 9, width: { ideal: 1280 } }, audio: false });
+    const video = cam.el; video.muted = true; video.style.cssText = "position:fixed;width:1px;height:1px;opacity:0;pointer-events:none"; document.body.appendChild(video);
+
+    // tracking runs on a small copy of each frame: short side 360 px
+    const k = 360 / Math.min(video.videoWidth, video.videoHeight), w = Math.round(video.videoWidth * k), h = Math.round(video.videoHeight * k);
+    const work = document.createElement("canvas"); work.width = w; work.height = h;
+    const ctx = work.getContext("2d", { willReadFrequently: true });
+    const alva = await AlvaAR.Initialize(w, h);
+    $("#start").remove();
+    setState("Starting", "warn"); hint("Move the phone slowly left and right until it says Tracking.");
+    $("#floor").onclick = () => setFloor(alva);
+    $("#reset").onclick = () => { alva.reset(); cal = null; path.length = 0; lastWorld = null; tracking = false; setState("Starting", "warn"); hint("Reset. Move the phone slowly side to side, then Set floor again."); };
+
+    let lostSince = 0, lastPath = 0, lastRun = 0;
+    const tick = () => {
+      requestAnimationFrame(tick);
+      if (video.readyState < 2) return;
+      const t = performance.now(); if (t - lastRun < 32) { renderer.render(scene, camera); return; }   // track at ~30 fps, draw every frame
+      lastRun = t;
+      ctx.drawImage(video, 0, 0, w, h);
+      const pose = alva.findCameraPoseWithIMU(ctx.getImageData(0, 0, w, h), imu.orientation, imu.motion);
+      frames++;
+      if (pose) {
+        poseToThree(pose, rawQ, rawP);
+        if (cal) {
+          const world = toWorld();
+          // a sudden big jump means the tracker restarted its map: the old calibration no longer fits
+          if (lastWorld && world.distanceTo(lastWorld) > .8) { cal = null; setState("Tracking restarted", "bad"); hint("Tracking restarted and lost its place. Point at the floor and tap Set floor again."); }
+          else {
+            camera.position.copy(world); camera.quaternion.copy(cal.qInv).multiply(rawQ);
+            lastWorld = world;
+            const now = performance.now(); if (now - lastPath > 100) { path.push({ x: world.x, z: world.z }); lastPath = now; if (path.length > 3000) path.shift(); }
+            $("#read").textContent = `from start ${Math.hypot(world.x, world.z).toFixed(2)} m · height ${world.y.toFixed(2)} m · x ${world.x.toFixed(2)} z ${world.z.toFixed(2)}`;
+            setState("Tracking", "ok");
+          }
+        } else {
+          camera.quaternion.copy(rawQ);
+          $("#read").textContent = "Not calibrated: distances unknown until you Set floor.";
+          setState("Tracking (no floor yet)", "ok");
+        }
+        tracking = true; lostSince = 0;
+      } else {
+        if (tracking) lostSince = performance.now();
+        tracking = false;
+        setState(lostSince && performance.now() - lostSince > 1500 ? "Lost" : "Searching", "bad");
+      }
+      if (frames % 10 === 0) $("#pts").textContent = alva.getFramePoints().length;
+      const now = performance.now(); if (now - fpsT > 1000) { $("#fps").textContent = Math.round(frames * 1000 / (now - fpsT)); frames = 0; fpsT = now; }
+      drawMap();
+      renderer.render(scene, camera);
+    };
+    tick();
+  } catch (e) {
+    $("#go").disabled = false; $("#go").textContent = "Start";
+    $("#err").textContent = String(e && e.message || e);
+  }
+};
+renderer.render(scene, camera); drawMap();
+</script>
+</body>
+</html>
