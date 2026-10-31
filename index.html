@@ -59,6 +59,9 @@
   .ar-card ol { margin: 0 0 8px; padding-left: 20px; line-height: 1.45; }
   .ar-card .row { align-items: center; }
   .ar-card a img { display: block; border: 0; }
+  .ar-size { display: grid; grid-template-columns: auto 1fr 3.2em; align-items: center; gap: 10px; margin: 2px 0 10px; font-weight: 600; }
+  .ar-size input { width: 100%; accent-color: var(--blood); }
+  .ar-size output { font-family: var(--f-type); text-align: right; }
   .height { position: absolute; right: 0; bottom: calc(100% + 12px); display: grid; justify-items: center; gap: 6px; }
   .height[hidden] { display: none; }
   .height .btn { width: 44px; height: 44px; padding: 0; font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -644,12 +647,25 @@ function setupAR() {
   const probe = document.createElement("a");
   if (!(probe.relList && probe.relList.supports && probe.relList.supports("ar")) || window.self !== window.top) return;   // iPhone/iPad Safari only
   $("#btn-ar").hidden = false;
+  const SIZES = [25, 35, 50, 65, 80, 100];   // the sizes exported by ar-build.html, as percent of life size
   $("#btn-ar").onclick = () => {
     // Quick Look needs a real link whose only child is an image
     $("#gate").innerHTML = `<div class="card ar-card"><div class="tag">Round ${round} &middot; Step inside</div><h3>Walk into the laboratory</h3>
-      <ol><li>Find open floor: the lab is about 4&nbsp;m wide and 4.5&nbsp;m deep.</li><li>Stand one step out from a wall, facing into the room.</li><li>Tap below, then point your phone at your feet until the lab appears around you.</li><li>Walk, crouch and lean in. Keep your fingers off the screen.</li></ol>
+      <label class="ar-size"><span>Size</span><input type="range" id="ar-size" min="0" max="${SIZES.length - 1}" step="1"><output id="ar-size-out"></output></label>
+      <ol><li id="ar-floor"></li><li>Stand one step out from a wall, facing into the room.</li><li>Tap below, then point your phone at your feet until the lab appears around you.</li><li>Walk, crouch and lean in. Keep your fingers off the screen.</li></ol>
       <p class="note">Yellow numbers mark the evidence. Read the cards on the Evidence tab.</p>
-      <div class="row"><a rel="ar" href="ar/round-${round}.usdz#allowsContentScaling=0"><img src="${arButtonImage()}" width="208" height="45" alt="Open the lab"></a><button id="ar-no">Not now</button></div></div>`;
+      <div class="row"><a rel="ar" id="ar-link"><img src="${arButtonImage()}" width="208" height="45" alt="Open the lab"></a><button id="ar-no">Not now</button></div></div>`;
+    const slider = $("#ar-size");
+    const setSize = i => {
+      const pct = SIZES[i], s = pct / 100;
+      store.set("hollowell-ar-size", pct);
+      $("#ar-size-out").textContent = pct + "%";
+      $("#ar-floor").textContent = `Find open floor about ${(4 * s).toFixed(1)} × ${(4.6 * s).toFixed(1)} m.` + (pct < 65 ? " At this size the room has no ceiling: you look down into it." : "");
+      $("#ar-link").href = `ar/round-${round}-${pct}.usdz#allowsContentScaling=0`;
+    };
+    slider.value = Math.max(0, SIZES.indexOf(store.get("hollowell-ar-size", 50)));
+    slider.oninput = () => setSize(+slider.value);
+    setSize(+slider.value);
     $("#gate").hidden = false;
     $("#ar-no").onclick = () => { $("#gate").hidden = true; };
   };
