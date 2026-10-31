@@ -54,6 +54,11 @@
   .btn { font: 600 .8rem/1 var(--f-body); color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; backdrop-filter: blur(4px); }
   .btn[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
   .btn.look { border-color: var(--moon); color: var(--moon); }
+  .btn.ar { border-color: var(--brass); color: var(--brass); }
+  .ar-card { text-align: left !important; }
+  .ar-card ol { margin: 0 0 8px; padding-left: 20px; line-height: 1.45; }
+  .ar-card .row { align-items: center; }
+  .ar-card a img { display: block; border: 0; }
   .height { position: absolute; right: 0; bottom: calc(100% + 12px); display: grid; justify-items: center; gap: 6px; }
   .height[hidden] { display: none; }
   .height .btn { width: 44px; height: 44px; padding: 0; font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -144,6 +149,7 @@
     </div>
     <div class="views">
       <button class="btn" id="btn-pos" aria-pressed="false" hidden>Positions at the flash</button>
+      <button class="btn ar" id="btn-ar" hidden>Step inside (AR)</button>
       <button class="btn look" id="btn-look">Look around</button>
     </div>
     <div class="stick" id="stick" hidden aria-label="Walk: drag the knob"><div class="knob" id="knob"></div><span>Walk</span></div>
@@ -522,6 +528,7 @@ function start() {
   });
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => goView(b.dataset.view));
   setupLook();
+  setupAR();
   setTimeout(() => { $("#hint").style.opacity = 0; }, 6000);
 }
 
@@ -626,20 +633,27 @@ function setupLook() {
   addEventListener("blur", () => keys.clear());
 }
 
-// Builds the AR file for a round (used once, offline, to make ar/round-N.usdz)
-async function exportRound(r) {
-  const keep = { round, pos: showPositions };
-  round = r; applyRound(); setPositions(r >= 2);
-  arOnly.forEach(([o, from, to]) => o.visible = r >= from && r <= to);
-  const { USDZExporter } = await import("three/addons/exporters/USDZExporter.js");
-  const model = new THREE.Group(); const clone = world.clone(true); const c = P(340, 235); clone.position.set(-c.x, 0, -c.z); model.add(clone);
-  const data = await new USDZExporter().parse(model, { quickLookCompatible: true });
-  arOnly.forEach(([o]) => o.visible = false);
-  round = keep.round; applyRound(); setPositions(keep.pos);
-  return data;
+// ---------- Step inside (AR): iPhone Quick Look opens the walk-in lab built by ar-build.html ----------
+function arButtonImage() {
+  const c = document.createElement("canvas"), w = 520, h = 112; c.width = w; c.height = h; const g = c.getContext("2d");
+  g.fillStyle = "#2b2119"; g.beginPath(); g.roundRect(0, 0, w, h, 18); g.fill();
+  g.fillStyle = "#ebe1c9"; g.font = "600 46px Georgia"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("Open the lab ▸", w / 2, h / 2 + 2);
+  return c.toDataURL("image/png");
 }
-function previewAR(r) { round = r; applyRound(); setPositions(r >= 2); arOnly.forEach(([o, from, to]) => o.visible = r >= from && r <= to); }
-window.__hollowell = { exportRound, previewAR };
+function setupAR() {
+  const probe = document.createElement("a");
+  if (!(probe.relList && probe.relList.supports && probe.relList.supports("ar")) || window.self !== window.top) return;   // iPhone/iPad Safari only
+  $("#btn-ar").hidden = false;
+  $("#btn-ar").onclick = () => {
+    // Quick Look needs a real link whose only child is an image
+    $("#gate").innerHTML = `<div class="card ar-card"><div class="tag">Round ${round} &middot; Step inside</div><h3>Walk into the laboratory</h3>
+      <ol><li>Find open floor: the lab is about 4&nbsp;m wide and 4.5&nbsp;m deep.</li><li>Stand one step out from a wall, facing into the room.</li><li>Tap below, then point your phone at your feet until the lab appears around you.</li><li>Walk, crouch and lean in. Keep your fingers off the screen.</li></ol>
+      <p class="note">Yellow numbers mark the evidence. Read the cards on the Evidence tab.</p>
+      <div class="row"><a rel="ar" href="ar/round-${round}.usdz#allowsContentScaling=0"><img src="${arButtonImage()}" width="208" height="45" alt="Open the lab"></a><button id="ar-no">Not now</button></div></div>`;
+    $("#gate").hidden = false;
+    $("#ar-no").onclick = () => { $("#gate").hidden = true; };
+  };
+}
 
 try { start(); } catch (e) { console.error(e); $("#err").hidden = false; $("#hud").hidden = true; $("#hint").hidden = true; }
 setRound(round);
