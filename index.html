@@ -170,7 +170,7 @@
     <div class="card">
       <div class="tag">Hollowell Manor &middot; 31 October 1888</div>
       <h3>Enter the laboratory</h3>
-      <p>You'll be standing inside the lab. Move your phone to look around, and <b>take steps</b> (or step on the spot) to walk forward the way you're facing. The <b>Walk</b> stick works too, and <b>&#9650; &#9660;</b> let you stand tall or crouch.</p>
+      <p>You'll be standing inside the lab. Move your phone to look around, drag the <b>Walk</b> stick to move, and use <b>&#9650; &#9660;</b> to stand tall or crouch.</p>
       <p class="note">Tap a numbered label to read that piece of evidence.</p>
       <div class="row"><button class="go" id="enter-go">Enter the laboratory</button><button id="enter-model">See the model instead</button></div>
     </div>
@@ -622,9 +622,9 @@ async function enterLook() {
   look = true; tween = null; controls.enabled = false;
   lookOnly.forEach(o => o.visible = true);
   $("#orbit-views").hidden = true; $("#look-views").hidden = false; $("#height").hidden = false; $("#stick").hidden = false; $("#btn-look").textContent = "Back to the model";
-  $("#btn-steps").hidden = !gyro; setSteps(gyro);
+  $("#btn-steps").hidden = !gyro; setSteps(false);
   resizeView(); goStation("rail"); lastT = performance.now();
-  setHint(gyro ? "Take steps to walk \u00B7 move your phone to look" : "Thumbstick or WASD to walk \u00B7 drag to look");
+  setHint(gyro ? "Thumbstick to walk \u00B7 move your phone to look" : "Thumbstick or WASD to walk \u00B7 drag to look");
   setTimeout(() => { if (look && gyro && !dev) { gyro = false; $("#btn-steps").hidden = true; setSteps(false); setHint("Thumbstick to walk \u00B7 drag to look"); } }, 1500);
 }
 function exitLook() {
