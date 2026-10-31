@@ -54,14 +54,7 @@
   .btn { font: 600 .8rem/1 var(--f-body); color: var(--fg); background: color-mix(in srgb, var(--panel) 88%, transparent); border: 1px solid var(--line); border-radius: 8px; padding: 9px 11px; cursor: pointer; backdrop-filter: blur(4px); }
   .btn[aria-pressed="true"] { border-color: var(--brass); color: var(--brass); }
   .btn.look { border-color: var(--moon); color: var(--moon); }
-  .btn.ar { border-color: var(--brass); color: var(--brass); }
-  .ar-card { text-align: left !important; }
-  .ar-card ol { margin: 0 0 8px; padding-left: 20px; line-height: 1.45; }
-  .ar-card .row { align-items: center; }
-  .ar-card a img { display: block; border: 0; }
-  .ar-size { display: grid; grid-template-columns: auto 1fr 3.2em; align-items: center; gap: 10px; margin: 2px 0 10px; font-weight: 600; }
-  .ar-size input { width: 100%; accent-color: var(--blood); }
-  .ar-size output { font-family: var(--f-type); text-align: right; }
+  .gate .row a.go { font: 600 .9rem/1 var(--f-body); padding: 10px 14px; border-radius: 6px; border: 1px solid var(--ink); background: var(--ink); color: var(--paper); text-decoration: none; }
   .height { position: absolute; right: 0; bottom: calc(100% + 12px); display: grid; justify-items: center; gap: 6px; }
   .height[hidden] { display: none; }
   .height .btn { width: 44px; height: 44px; padding: 0; font-size: 1rem; touch-action: none; user-select: none; -webkit-user-select: none; }
@@ -153,7 +146,6 @@
     </div>
     <div class="views">
       <button class="btn" id="btn-pos" aria-pressed="false" hidden>Positions at the flash</button>
-      <button class="btn ar" id="btn-ar" hidden>Step inside (AR)</button>
       <button class="btn look" id="btn-look">Look around</button>
     </div>
     <div class="stick" id="stick" hidden aria-label="Walk: drag the knob"><div class="knob" id="knob"></div><span>Walk</span></div>
@@ -170,9 +162,9 @@
     <div class="card">
       <div class="tag">Hollowell Manor &middot; 31 October 1888</div>
       <h3>Enter the laboratory</h3>
-      <p>You'll be standing inside the lab. Move your phone to look around, drag the <b>Walk</b> stick to move, and use <b>&#9650; &#9660;</b> to stand tall or crouch.</p>
-      <p class="note">Tap a numbered label to read that piece of evidence.</p>
-      <div class="row"><button class="go" id="enter-go">Enter the laboratory</button><button id="enter-model">See the model instead</button></div>
+      <p id="enter-walk-text"><b>Walk into the lab</b> and walk around it for real: your phone follows your steps, and you see nothing but the lab.</p>
+      <p><b>Explore on screen</b> if you'd rather stay put: look around by moving your phone (or dragging), and use the <b>Walk</b> stick to move.</p>
+      <div class="row"><a class="go" id="enter-walk" href="walk.html">Walk into the lab</a><button id="enter-go">Explore on screen</button><button id="enter-model">See the model</button></div>
     </div>
   </div>
   <div class="err" id="err" hidden>The 3D scene couldn't start on this device. The Evidence tab still works.</div>
@@ -541,7 +533,6 @@ function start() {
   });
   document.querySelectorAll("[data-view]").forEach(b => b.onclick = () => goView(b.dataset.view));
   setupLook();
-  setupAR();
   setTimeout(() => { $("#hint").style.opacity = 0; }, 6000);
 }
 
@@ -667,52 +658,19 @@ function setupLook() {
   addEventListener("blur", () => keys.clear());
 }
 
-// ---------- Step inside (AR): iPhone Quick Look opens the walk-in lab built by ar-build.html ----------
-function arButtonImage() {
-  const c = document.createElement("canvas"), w = 520, h = 112; c.width = w; c.height = h; const g = c.getContext("2d");
-  g.fillStyle = "#2b2119"; g.beginPath(); g.roundRect(0, 0, w, h, 18); g.fill();
-  g.fillStyle = "#ebe1c9"; g.font = "600 46px Georgia"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("Open the lab ▸", w / 2, h / 2 + 2);
-  return c.toDataURL("image/png");
-}
-function setupAR() {
-  const probe = document.createElement("a");
-  if (!(probe.relList && probe.relList.supports && probe.relList.supports("ar")) || window.self !== window.top) return;   // iPhone/iPad Safari only
-  $("#btn-ar").hidden = false;
-  const SIZES = [25, 35, 50, 65, 80, 100];   // the sizes exported by ar-build.html, as percent of life size
-  $("#btn-ar").onclick = () => {
-    // Quick Look needs a real link whose only child is an image
-    $("#gate").innerHTML = `<div class="card ar-card"><div class="tag">Round ${round} &middot; Step inside</div><h3>Walk into the laboratory</h3>
-      <label class="ar-size"><span>Size</span><input type="range" id="ar-size" min="0" max="${SIZES.length - 1}" step="1"><output id="ar-size-out"></output></label>
-      <ol><li id="ar-floor"></li><li>Stand one step out from a wall, facing into the room.</li><li>Tap below, then point your phone at your feet until the lab appears around you.</li><li>Walk, crouch and lean in. Keep your fingers off the screen.</li></ol>
-      <p class="note"><b>Move slowly:</b> the lab covers your real room, so you won't see the furniture in it.</p>
-      <p class="note">Yellow numbers mark the evidence. Read the cards on the Evidence tab.</p>
-      <div class="row"><a rel="ar" id="ar-link"><img src="${arButtonImage()}" width="208" height="45" alt="Open the lab"></a><button id="ar-no">Not now</button></div></div>`;
-    const slider = $("#ar-size");
-    const setSize = i => {
-      const pct = SIZES[i], s = pct / 100;
-      store.set("hollowell-ar-size", pct);
-      $("#ar-size-out").textContent = pct + "%";
-      $("#ar-floor").textContent = pct < 65
-        ? `Clear about ${(4 * s + 1.4).toFixed(1)} × ${(4.6 * s + 1.4).toFixed(1)} m of floor. The lab has no ceiling at this size, so you look down into it from a dark hall around it.`
-        : `Clear about ${(4 * s).toFixed(1)} × ${(4.6 * s).toFixed(1)} m of floor.`;
-      $("#ar-link").href = `ar/round-${round}-${pct}.usdz#allowsContentScaling=0`;
-    };
-    slider.value = Math.max(0, SIZES.indexOf(store.get("hollowell-ar-size", 50)));
-    slider.oninput = () => setSize(+slider.value);
-    setSize(+slider.value);
-    $("#gate").hidden = false;
-    $("#ar-no").onclick = () => { $("#gate").hidden = true; };
-  };
-}
-
 let started = false;
 try { start(); started = true; } catch (e) { console.error(e); $("#err").hidden = false; $("#hud").hidden = true; $("#hint").hidden = true; }
 // open straight into Look around; the tap is also what lets iPhone share the phone's motion
 if (started) {
   $("#enter").hidden = false;
+  // real walking needs a phone camera; elsewhere, exploring on screen is the way in
+  const phone = matchMedia("(pointer: coarse)").matches;
+  $("#enter-walk").hidden = $("#enter-walk-text").hidden = !phone;
+  if (!phone) $("#enter-go").classList.add("go");
+  $("#enter-walk").onclick = () => { $("#enter-walk").href = `walk.html?round=${round}`; };
   $("#enter-go").onclick = () => { $("#enter").hidden = true; setTab("scene"); enterLook(); };
   $("#enter-model").onclick = () => { $("#enter").hidden = true; };
-  $("#enter-go").focus();
+  (phone ? $("#enter-walk") : $("#enter-go")).focus();
 }
 setRound(round);
 setTab(store.get("hollowell-tab", "scene"));
