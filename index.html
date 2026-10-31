@@ -165,6 +165,15 @@
   <div id="evidence" hidden><div class="stack" id="stack"></div></div>
   <div class="sheet" id="sheet" hidden></div>
   <div class="gate" id="gate" hidden></div>
+  <div class="gate enter" id="enter" hidden>
+    <div class="card">
+      <div class="tag">Hollowell Manor &middot; 31 October 1888</div>
+      <h3>Enter the laboratory</h3>
+      <p>You'll be standing inside the lab. Move your phone to look around, drag the <b>Walk</b> stick to move, and use <b>&#9650; &#9660;</b> to stand tall or crouch.</p>
+      <p class="note">Tap a numbered label to read that piece of evidence.</p>
+      <div class="row"><button class="go" id="enter-go">Enter the laboratory</button><button id="enter-model">See the model instead</button></div>
+    </div>
+  </div>
   <div class="err" id="err" hidden>The 3D scene couldn't start on this device. The Evidence tab still works.</div>
 </main>
 
@@ -674,7 +683,15 @@ function setupAR() {
   };
 }
 
-try { start(); } catch (e) { console.error(e); $("#err").hidden = false; $("#hud").hidden = true; $("#hint").hidden = true; }
+let started = false;
+try { start(); started = true; } catch (e) { console.error(e); $("#err").hidden = false; $("#hud").hidden = true; $("#hint").hidden = true; }
+// open straight into Look around; the tap is also what lets iPhone share the phone's motion
+if (started) {
+  $("#enter").hidden = false;
+  $("#enter-go").onclick = () => { $("#enter").hidden = true; setTab("scene"); enterLook(); };
+  $("#enter-model").onclick = () => { $("#enter").hidden = true; };
+  $("#enter-go").focus();
+}
 setRound(round);
 setTab(store.get("hollowell-tab", "scene"));
 </script>
